@@ -1,6 +1,9 @@
 import 'dart:math';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
+
+import 'utils/custom_curved_animation.dart';
 
 void main() {
   runApp(MyApp());
@@ -29,16 +32,31 @@ class MyHomePage extends StatefulWidget {
   _MyHomePageState createState() => _MyHomePageState();
 }
 
+extension IndexedIterable<E> on Iterable<E> {
+  Iterable<T> mapIndexed<T>(T Function(E e, int i) f) {
+    var i = 0;
+    return map((e) => f(e, i++));
+  }
+}
+
 class _MyHomePageState extends State<MyHomePage>
     with SingleTickerProviderStateMixin {
   AnimationController _animationController;
-  bool isOpen = false;
+  CustomCurvedAnimation _curvedAnimationController;
+  List<int> list = List.filled(3, 0);
+  double radius = 20;
+  bool isExpanded = false;
 
   @override
   void initState() {
     super.initState();
-    _animationController =
-        AnimationController(vsync: this, duration: Duration(milliseconds: 300));
+    _animationController = AnimationController(vsync: this);
+    repeat();
+    _curvedAnimationController = CustomCurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeOutQuad,
+      reverseCurve: Curves.easeOutQuad.flipped,
+    );
   }
 
   @override
@@ -47,92 +65,140 @@ class _MyHomePageState extends State<MyHomePage>
     _animationController.dispose();
   }
 
+  void repeat() {
+    _animationController?.repeat(reverse: true, period: Duration(seconds: 5));
+  }
+
+  Offset generateIdlePosition(
+    int index,
+    int length, {
+    double xOffset,
+    double yOffset,
+    double dy,
+  }) {
+    var number = length - 1 - index;
+    var y = yOffset + dy * number;
+    var x = xOffset;
+    return Offset(x, y);
+  }
+
+  double generateIdleScale(int index, int length, {double scale = 0.1}) {
+    var number = length - 1 - index;
+    return max(1 - 0.1 * number, 0.0);
+  }
+
+  Matrix4 generateIdleAnimationMatrix(
+    int index,
+    int length,
+    Offset position,
+    double scale, {
+    double dy = 0,
+    double animationValue = 0,
+  }) {
+    var number = length - 1 - index;
+    var y = lerpDouble(position.dy, position.dy + dy * number, animationValue);
+    var x = position.dx;
+    // print(offset);
+    return Matrix4.identity()
+      ..setTranslationRaw(x, y, 0.0)
+      ..scale(scale, scale, 1);
+  }
+
+  Color generateIdleColor(int index, int length, Color initialColor) {
+    var number = length - index;
+    var hsv = HSVColor.fromColor(initialColor);
+    var value = max(hsv.value - number * 0.15, 0);
+    return hsv.withValue(value).toColor();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
       ),
-      body: Container(
-        child: Stack(
-          children: [
-            AnimatedBuilder(
-              animation: _animationController,
-              builder: (BuildContext context, Widget child) {
-                return CustomPaint(
-                  size: Size(MediaQuery.of(context).size.width, 200),
-                  painter: ShapePainter(progress: _animationController.value),
-                  child: child,
-                );
-              },
-              child: Container(
-                width: MediaQuery.of(context).size.width,
-                height: 200,
-                alignment: Alignment(0.95, 0.65),
-                child: IconButton(
-                  icon: AnimatedIcon(
-                      icon: AnimatedIcons.menu_close,
-                      progress: _animationController),
-                  onPressed: () {
-                    isOpen = !isOpen;
-                    if (isOpen) {
-                      _animationController.forward();
-                    } else {
-                      _animationController.reverse();
-                    }
+      body: SafeArea(
+        child: Container(
+          child: LayoutBuilder(
+            builder: (context, constraint) {
+              var width = constraint.maxWidth;
+              var height = constraint.maxHeight;
+              return Container(
+                width: width,
+                height: height,
+                color: Color(0xFF29253F),
+                child: AnimatedBuilder(
+                  animation: _animationController,
+                  builder: (context, child) {
+                    var animationValue = _curvedAnimationController.value;
+                    var size = 200.0;
+                    var minYOffset = 10.0;
+                    var move = 10.0;
+                    var primaryColor = Color(0xFFE5E5E5);
+                    var centerX = (width - size) / 2;
+                    var centerY =
+                        (height - size) / 2 - minYOffset * (list.length - 1);
+                    return Stack(
+                      children: [
+                        ...list.mapIndexed((e, i) {
+                          var position = generateIdlePosition(
+                            i,
+                            list.length,
+                            xOffset: centerX,
+                            yOffset: centerY,
+                            dy: minYOffset,
+                          );
+                          var scale = generateIdleScale(i, list.length);
+                          var color =
+                              generateIdleColor(i, list.length, primaryColor);
+
+                          Matrix4 matrix;
+                          if (isExpanded) {
+                            matrix = Matrix4.identity()
+                              ..setTranslationRaw(position.dx, position.dy, 0.0)
+                              ..scale(scale, scale, 1);
+                          } else {
+                            matrix = generateIdleAnimationMatrix(
+                                i, list.length, position, scale,
+                                dy: move, animationValue: animationValue);
+                          }
+                          return Transform(
+                            transform: matrix,
+                            alignment: Alignment.bottomCenter,
+                            child: InkWell(
+                              onTap: i == list.length - 1
+                                  ? () async {
+                                      if (isExpanded) {
+                                        await _animationController.animateTo(0,
+                                            duration: Duration(seconds: 1));
+                                        repeat();
+                                      } else {
+                                        _animationController.animateTo(1,
+                                            duration: Duration(seconds: 1));
+                                      }
+                                      isExpanded = !isExpanded;
+                                    }
+                                  : null,
+                              child: Container(
+                                width: size,
+                                height: size,
+                                decoration: BoxDecoration(
+                                  color: color,
+                                  borderRadius: BorderRadius.circular(radius),
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ],
+                    );
                   },
                 ),
-              ),
-            ),
-          ],
+              );
+            },
+          ),
         ),
       ),
     );
-  }
-}
-
-class ShapePainter extends CustomPainter {
-  final double progress;
-
-  ShapePainter({this.progress});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    num degToRad(num deg) => deg * (pi / 180.0);
-
-    var paint = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 5
-      ..style = PaintingStyle.fill
-      ..strokeCap = StrokeCap.round;
-
-    var radius = size.height / 4;
-    var inverseProgress = 1 - progress;
-    var semiCircleLeft = (size.width * inverseProgress - radius) * inverseProgress - radius;
-    var canvasSize = Rect.fromLTWH(0, 0, size.width, size.height);
-    var pathSize = Rect.fromLTWH(0, 0, radius * 2, radius * 2);
-    var semiCircleRect =
-        Rect.fromLTWH(semiCircleLeft, radius * 2, radius * 2, radius * 2);
-
-    var rectangleRect =
-        Rect.fromLTWH(semiCircleRect.right - radius - 1, size.height / 2, size.width + 2, size.height);
-
-    canvas.clipRect(canvasSize);
-    canvas.drawColor(Colors.red, BlendMode.src);
-
-    Path path = Path()
-      ..arcTo(pathSize, degToRad(0), degToRad(90), true)
-      ..lineTo(radius * 2 + 1, radius * 2 + 1);
-    canvas.save();
-    canvas.translate(canvasSize.width - radius * 2, 0);
-    canvas.drawPath(path, paint);
-    canvas.restore();
-    canvas.drawArc(semiCircleRect, degToRad(90), degToRad(180), true, paint);
-    canvas.drawRect(rectangleRect, paint);
-  }
-
-  @override
-  bool shouldRepaint(ShapePainter oldDelegate) {
-    return oldDelegate.progress != this.progress;
   }
 }
