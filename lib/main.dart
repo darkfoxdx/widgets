@@ -69,7 +69,7 @@ class _MyHomePageState extends State<MyHomePage>
     _animationController?.repeat(reverse: true, period: Duration(seconds: 5));
   }
 
-  Offset generateIdlePosition(
+  Offset generateInitialPosition(
     int index,
     int length, {
     double xOffset,
@@ -82,33 +82,65 @@ class _MyHomePageState extends State<MyHomePage>
     return Offset(x, y);
   }
 
-  double generateIdleScale(int index, int length, {double scale = 0.1}) {
+  double generateInitialScale(int index, int length, {double scale = 0.1}) {
     var number = length - 1 - index;
     return max(1 - 0.1 * number, 0.0);
   }
 
-  Matrix4 generateIdleAnimationMatrix(
+  Offset generateIdlePosition(
     int index,
     int length,
-    Offset position,
-    double scale, {
+    Offset position, {
     double dy = 0,
     double animationValue = 0,
   }) {
     var number = length - 1 - index;
     var y = lerpDouble(position.dy, position.dy + dy * number, animationValue);
     var x = position.dx;
-    // print(offset);
-    return Matrix4.identity()
-      ..setTranslationRaw(x, y, 0.0)
-      ..scale(scale, scale, 1);
+    return Offset(x, y);
   }
 
-  Color generateIdleColor(int index, int length, Color initialColor) {
+  double generateExpandedScale(
+    double scale, {
+    double animationValue = 0,
+  }) {
+    var newScale = lerpDouble(scale, 1, animationValue);
+    return newScale;
+  }
+
+  Offset generateExpandedPosition(
+    int index,
+    int length,
+    Offset position,
+    double size, {
+    double margin = 0,
+    double topMargin = 0,
+    double animationValue = 0,
+  }) {
+    var number = length - 1 - index;
+    var y = lerpDouble(
+        position.dy, (size + margin) * number + topMargin, animationValue);
+    var x = position.dx;
+
+    return Offset(x, y);
+  }
+
+  Color generateInitialColor(int index, int length, Color initialColor) {
     var number = length - index;
     var hsv = HSVColor.fromColor(initialColor);
     var value = max(hsv.value - number * 0.15, 0);
     return hsv.withValue(value).toColor();
+  }
+
+  Color generateExpandedColor(
+    Color startColor,
+    Color expandedColor, {
+    double animationValue = 0,
+  }) {
+    var startHsv = HSVColor.fromColor(startColor);
+    var endHsv = HSVColor.fromColor(expandedColor);
+    var value = lerpDouble(startHsv.value, endHsv.value, animationValue);
+    return startHsv.withValue(value).toColor();
   }
 
   @override
@@ -134,6 +166,7 @@ class _MyHomePageState extends State<MyHomePage>
                     var size = 200.0;
                     var minYOffset = 10.0;
                     var move = 10.0;
+                    var margin = 20.0;
                     var primaryColor = Color(0xFFE5E5E5);
                     var centerX = (width - size) / 2;
                     var centerY =
@@ -141,29 +174,55 @@ class _MyHomePageState extends State<MyHomePage>
                     return Stack(
                       children: [
                         ...list.mapIndexed((e, i) {
-                          var position = generateIdlePosition(
+                          var position = generateInitialPosition(
                             i,
                             list.length,
                             xOffset: centerX,
                             yOffset: centerY,
                             dy: minYOffset,
                           );
-                          var scale = generateIdleScale(i, list.length);
-                          var color =
-                              generateIdleColor(i, list.length, primaryColor);
+                          var scale = generateInitialScale(i, list.length);
+                          var color = generateInitialColor(
+                              i, list.length, primaryColor);
 
-                          Matrix4 matrix;
+                          Offset newPosition;
+                          double newScale;
+                          Color newColor;
                           if (isExpanded) {
-                            matrix = Matrix4.identity()
-                              ..setTranslationRaw(position.dx, position.dy, 0.0)
-                              ..scale(scale, scale, 1);
+                            newPosition = generateExpandedPosition(
+                              i,
+                              list.length,
+                              position,
+                              size,
+                              topMargin: margin,
+                              margin: margin,
+                              animationValue: animationValue,
+                            );
+                            newScale = generateExpandedScale(
+                              scale,
+                              animationValue: animationValue,
+                            );
+                            newColor = generateExpandedColor(
+                              color,
+                              primaryColor,
+                              animationValue: animationValue,
+                            );
                           } else {
-                            matrix = generateIdleAnimationMatrix(
-                                i, list.length, position, scale,
-                                dy: move, animationValue: animationValue);
+                            newPosition = generateIdlePosition(
+                              i,
+                              list.length,
+                              position,
+                              dy: move,
+                              animationValue: animationValue,
+                            );
+                            newScale = scale;
+                            newColor = color;
                           }
                           return Transform(
-                            transform: matrix,
+                            transform: Matrix4.identity()
+                              ..setTranslationRaw(
+                                  newPosition.dx, newPosition.dy, 0)
+                              ..scale(newScale, newScale, 1),
                             alignment: Alignment.bottomCenter,
                             child: InkWell(
                               onTap: i == list.length - 1
@@ -173,6 +232,7 @@ class _MyHomePageState extends State<MyHomePage>
                                             duration: Duration(seconds: 1));
                                         repeat();
                                       } else {
+                                        _animationController.reset();
                                         _animationController.animateTo(1,
                                             duration: Duration(seconds: 1));
                                       }
@@ -183,9 +243,10 @@ class _MyHomePageState extends State<MyHomePage>
                                 width: size,
                                 height: size,
                                 decoration: BoxDecoration(
-                                  color: color,
+                                  color: newColor,
                                   borderRadius: BorderRadius.circular(radius),
                                 ),
+                                child: Center(child: Text("$i")),
                               ),
                             ),
                           );
